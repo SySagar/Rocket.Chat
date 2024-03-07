@@ -12,6 +12,8 @@ export const useFileUploadAction = (disabled: boolean): GenericMenuItemProps => 
 	const fileUploadEnabled = useSetting('FileUpload_Enabled');
 	const fileInputRef = useFileInput(fileInputProps);
 	const chat = useChat();
+	console.log('fileInputRef', fileInputRef);
+	console.log('chat', chat);
 
 	useEffect(() => {
 		const resetFileInput = () => {
@@ -28,9 +30,14 @@ export const useFileUploadAction = (disabled: boolean): GenericMenuItemProps => 
 				Object.defineProperty(file, 'type', {
 					value: mime.lookup(file.name),
 				});
-				return file;
+				return {file,
+					preview: URL.createObjectURL(file)};
 			});
-			chat?.flows.uploadFiles(filesToUpload, resetFileInput);
+			if(filesToUpload.length > 1)
+			chat?.flows.uploadMultipleFiles(filesToUpload, resetFileInput);
+			else
+			 chat?.flows.uploadFiles(filesToUpload, resetFileInput);
+			console.log('filesToUpload', filesToUpload);
 		};
 
 		fileInputRef.current?.addEventListener('change', handleUploadChange);

@@ -6,16 +6,15 @@ import { imperativeModal } from '../../imperativeModal';
 import { prependReplies } from '../../utils/prependReplies';
 import type { ChatAPI } from '../ChatAPI';
 
-export const uploadFiles = async (chat: ChatAPI, files: readonly { file: File; preview: string }[], resetFileInput?: () => void): Promise<void> => {
+export const uploadMultipleFiles = async (chat: ChatAPI, files: readonly { file: File; preview: string }[], resetFileInput?: () => void): Promise<void> => {
 	const replies = chat.composer?.quotedMessages.get() ?? [];
 
 	const msg = await prependReplies('', replies);
 
 	const room = await chat.data.getRoom();
-	console.log('room', room);
-	console.log('chat', chat);
 
 	const queue = [...files];
+    console.log('queue', queue);
 
 	const uploadNextFile = (): void => {
 		const file = queue.pop();
