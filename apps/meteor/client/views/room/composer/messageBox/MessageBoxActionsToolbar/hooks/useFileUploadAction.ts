@@ -13,7 +13,6 @@ export const useFileUploadAction = (disabled: boolean): GenericMenuItemProps => 
 	const fileInputRef = useFileInput(fileInputProps);
 	const chat = useChat();
 	console.log('fileInputRef', fileInputRef);
-	console.log('chat', chat);
 
 	useEffect(() => {
 		const resetFileInput = () => {

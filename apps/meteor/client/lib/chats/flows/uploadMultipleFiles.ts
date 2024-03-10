@@ -1,7 +1,7 @@
 import { isRoomFederated } from '@rocket.chat/core-typings';
 
 import { fileUploadIsValidContentType } from '../../../../app/utils/client';
-import FileUploadModal from '../../../views/room/modals/FileUploadModal';
+import {MultipleFileUploadModal} from '../../../views/room/modals/FileUploadModal';
 import { imperativeModal } from '../../imperativeModal';
 import { prependReplies } from '../../utils/prependReplies';
 import type { ChatAPI } from '../ChatAPI';
@@ -24,21 +24,20 @@ export const uploadMultipleFiles = async (chat: ChatAPI, files: readonly { file:
 		}
 
 		imperativeModal.open({
-			component: FileUploadModal,
+			component: MultipleFileUploadModal,
 			props: {
-				file:file.file,
-				fileName: file.file.name,
+				files:file.file,
 				fileDescription: chat.composer?.text ?? '',
 				showDescription: room && !isRoomFederated(room),
 				onClose: (): void => {
 					imperativeModal.close();
 					uploadNextFile();
 				},
-				onSubmit: (fileName: string, description?: string): void => {
-					Object.defineProperty(file, 'name', {
-						writable: true,
-						value: fileName,
-					});
+				onSubmit: (description?: string): void => {
+					// Object.defineProperty(file, 'name', {
+					// 	writable: true,
+					// 	value: fileName,
+					// });
 					chat.uploads.send(file.file, {
 						description,
 						msg,

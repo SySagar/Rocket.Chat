@@ -13,6 +13,7 @@ import { replyBroadcast } from '../../../../client/lib/chats/flows/replyBroadcas
 import { requestMessageDeletion } from '../../../../client/lib/chats/flows/requestMessageDeletion';
 import { sendMessage } from '../../../../client/lib/chats/flows/sendMessage';
 import { uploadFiles } from '../../../../client/lib/chats/flows/uploadFiles';
+import { uploadMultipleFiles } from '../../../../client/lib/chats/flows/uploadMultipleFiles';
 import { ReadStateManager } from '../../../../client/lib/chats/readStateManager';
 import { createUploadsAPI } from '../../../../client/lib/chats/uploads';
 import {
@@ -186,6 +187,7 @@ export class ChatMessages implements ChatAPI {
 
 		this.flows = {
 			uploadFiles: uploadFiles.bind(null, this),
+			uploadMultipleFiles: uploadMultipleFiles.bind(null, this),
 			sendMessage: sendMessage.bind(this, this),
 			processSlashCommand: processSlashCommand.bind(null, this),
 			processTooLongMessage: processTooLongMessage.bind(null, this),
