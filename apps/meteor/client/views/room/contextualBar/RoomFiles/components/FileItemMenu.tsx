@@ -3,7 +3,7 @@ import { Emitter } from '@rocket.chat/emitter';
 import { Box, Menu, Icon } from '@rocket.chat/fuselage';
 import { useUniqueId } from '@rocket.chat/fuselage-hooks';
 import { useTranslation, useUserId } from '@rocket.chat/ui-contexts';
-import React, { memo, useEffect } from 'react';
+import { memo, useEffect } from 'react';
 
 import { getURL } from '../../../../../../app/utils/client';
 import { download, downloadAs } from '../../../../../lib/download';
@@ -17,21 +17,24 @@ type FileItemMenuProps = {
 
 const ee = new Emitter<Record<string, { result: ArrayBuffer; id: string }>>();
 
-navigator.serviceWorker.addEventListener('message', (event) => {
-	if (event.data.type === 'attachment-download-result') {
-		const { result } = event.data as { result: ArrayBuffer; id: string };
+if ('serviceWorker' in navigator) {
+	navigator.serviceWorker.addEventListener('message', (event) => {
+		if (event.data.type === 'attachment-download-result') {
+			const { result } = event.data as { result: ArrayBuffer; id: string };
 
-		ee.emit(event.data.id, { result, id: event.data.id });
-	}
-});
+			ee.emit(event.data.id, { result, id: event.data.id });
+		}
+	});
+}
 
 const FileItemMenu = ({ fileData, onClickDelete }: FileItemMenuProps) => {
 	const t = useTranslation();
 	const room = useRoom();
 	const userId = useUserId();
 	const isDeletionAllowed = useMessageDeletionIsAllowed(room._id, fileData, userId);
+	const canDownloadFile = !fileData.encryption || 'serviceWorker' in navigator;
 
-	const { controller } = navigator.serviceWorker;
+	const { controller } = navigator?.serviceWorker || {};
 
 	const uid = useUniqueId();
 
@@ -53,6 +56,10 @@ const FileItemMenu = ({ fileData, onClickDelete }: FileItemMenuProps) => {
 			),
 			action: () => {
 				if (fileData.path?.includes('/file-decrypt/')) {
+					if (!controller) {
+						return;
+					}
+
 					controller?.postMessage({
 						type: 'attachment-download',
 						url: fileData.path,
@@ -68,6 +75,7 @@ const FileItemMenu = ({ fileData, onClickDelete }: FileItemMenuProps) => {
 					URL.revokeObjectURL(fileData.url);
 				}
 			},
+			disabled: !canDownloadFile,
 		},
 		...(isDeletionAllowed &&
 			onClickDelete && {
