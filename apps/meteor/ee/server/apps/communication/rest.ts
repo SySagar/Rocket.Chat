@@ -1,12 +1,14 @@
 import { AppStatus, AppStatusUtils } from '@rocket.chat/apps-engine/definition/AppStatus';
 import type { IAppInfo } from '@rocket.chat/apps-engine/definition/metadata';
 import type { AppManager } from '@rocket.chat/apps-engine/server/AppManager';
-import { AppInstallationSource } from '@rocket.chat/apps-engine/server/storage';
+import type { IMarketplaceInfo } from '@rocket.chat/apps-engine/server/marketplace';
 import type { IUser, IMessage } from '@rocket.chat/core-typings';
 import { License } from '@rocket.chat/license';
 import { Settings, Users } from '@rocket.chat/models';
 import { serverFetch as fetch } from '@rocket.chat/server-fetch';
+import type express from 'express';
 import { Meteor } from 'meteor/meteor';
+import { WebApp } from 'meteor/webapp';
 
 import type { APIClass } from '../../../../app/api/server';
 import { API } from '../../../../app/api/server';
@@ -20,7 +22,6 @@ import { i18n } from '../../../../server/lib/i18n';
 import { sendMessagesToAdmins } from '../../../../server/lib/sendMessagesToAdmins';
 import { canEnableApp } from '../../../app/license/server/canEnableApp';
 import { formatAppInstanceForRest } from '../../../lib/misc/formatAppInstanceForRest';
-import { appEnableCheck } from '../marketplace/appEnableCheck';
 import { notifyAppInstall } from '../marketplace/appInstall';
 import type { AppServerOrchestrator } from '../orchestrator';
 import { Apps } from '../orchestrator';
@@ -51,12 +52,13 @@ export class AppsRestApi {
 	async loadAPI() {
 		this.api = new API.ApiClass({
 			version: 'apps',
+			apiPath: '/api',
 			useDefaultAuth: true,
 			prettyJson: false,
 			enableCors: false,
-			auth: API.getUserAuth(),
 		});
-		this.addManagementRoutes();
+		await this.addManagementRoutes();
+		(WebApp.connectHandlers as ReturnType<typeof express>).use(this.api.router.router);
 	}
 
 	addManagementRoutes() {
@@ -125,6 +127,12 @@ export class AppsRestApi {
 								...(this.queryParams.isAdminUser === 'false' && { endUserID: this.user._id }),
 							},
 						});
+
+						if (request.status === 426) {
+							orchestrator.getRocketChatLogger().error('Workspace out of support window:', await request.json());
+							return API.v1.failure({ error: 'unsupported version' });
+						}
+
 						if (request.status !== 200) {
 							orchestrator.getRocketChatLogger().error('Error getting the Apps:', await request.json());
 							return API.v1.failure();
@@ -186,7 +194,7 @@ export class AppsRestApi {
 						return API.v1.failure({ error: 'Invalid purchase type' });
 					}
 
-					const response = await getWorkspaceAccessTokenWithScope('marketplace:purchase');
+					const response = await getWorkspaceAccessTokenWithScope({ scope: 'marketplace:purchase' });
 					if (!response.token) {
 						return API.v1.failure({ error: 'Unauthorized' });
 					}
@@ -286,7 +294,7 @@ export class AppsRestApi {
 							return API.v1.failure({ error: 'Invalid purchase type' });
 						}
 
-						const token = await getWorkspaceAccessTokenWithScope('marketplace:purchase');
+						const token = await getWorkspaceAccessTokenWithScope({ scope: 'marketplace:purchase' });
 						if (!token) {
 							return API.v1.failure({ error: 'Unauthorized' });
 						}
@@ -310,7 +318,7 @@ export class AppsRestApi {
 				},
 				async post() {
 					let buff;
-					let marketplaceInfo;
+					let marketplaceInfo: IMarketplaceInfo[] | undefined;
 					let permissionsGranted;
 
 					if (this.bodyParams.url) {
@@ -328,12 +336,6 @@ export class AppsRestApi {
 							orchestrator.getRocketChatLogger().error('Error getting the app from url:', e.response.data);
 							return API.v1.internalError();
 						}
-
-						if (this.bodyParams.downloadOnly) {
-							apiDeprecationLogger.parameter(this.request.route, 'downloadOnly', '7.0.0', this.response);
-
-							return API.v1.success({ buff });
-						}
 					} else if ('appId' in this.bodyParams && this.bodyParams.appId && this.bodyParams.marketplace && this.bodyParams.version) {
 						const baseUrl = orchestrator.getMarketplaceUrl();
 
@@ -345,12 +347,16 @@ export class AppsRestApi {
 							const [downloadResponse, marketplaceResponse] = await Promise.all([
 								fetch(`${baseUrl}/v2/apps/${this.bodyParams.appId}/download/${this.bodyParams.version}?token=${downloadToken}`, {
 									headers,
+								}).catch((cause) => {
+									throw new Error('App package download failed', { cause });
 								}),
 								fetch(`${baseUrl}/v1/apps/${this.bodyParams.appId}?appVersion=${this.bodyParams.version}`, {
 									headers: {
 										Authorization: `Bearer ${marketplaceToken}`,
 										...headers,
 									},
+								}).catch((cause) => {
+									throw new Error('App metadata download failed', { cause });
 								}),
 							]);
 
@@ -359,10 +365,27 @@ export class AppsRestApi {
 							}
 
 							buff = Buffer.from(await downloadResponse.arrayBuffer());
-							marketplaceInfo = (await marketplaceResponse.json()) as any;
+							marketplaceInfo = await marketplaceResponse.json();
+
+							// Note: marketplace responds with an array of the marketplace info on the app, but it is expected
+							// to always have one element since we are fetching a specific app version.
+							if (!Array.isArray(marketplaceInfo) || marketplaceInfo?.length !== 1) {
+								orchestrator.getRocketChatLogger().error('Error getting the App information from the Marketplace:', marketplaceInfo);
+								throw new Error('Invalid response from the Marketplace');
+							}
+
 							permissionsGranted = this.bodyParams.permissionsGranted;
-						} catch (err: any) {
-							return API.v1.failure(err.message);
+						} catch (err: unknown) {
+							let message;
+
+							if (err instanceof Error) {
+								orchestrator.getRocketChatLogger().error('Error installing app from marketplace: ', err.message, err.cause);
+								message = err.message;
+							} else {
+								message = err;
+							}
+
+							return API.v1.failure({ error: message });
 						}
 					} else {
 						const app = await getUploadFormData(
@@ -418,9 +441,13 @@ export class AppsRestApi {
 
 					void notifyAppInstall(orchestrator.getMarketplaceUrl() as string, 'install', info);
 
-					if (await canEnableApp(aff.getApp().getStorageItem())) {
+					try {
+						await canEnableApp(aff.getApp().getStorageItem());
+
 						const success = await manager.enable(info.id);
 						info.status = success ? AppStatus.AUTO_ENABLED : info.status;
+					} catch (error) {
+						orchestrator.getRocketChatLogger().warn(`App "${info.id}" was installed but could not be enabled: `, error);
 					}
 
 					void orchestrator.getNotifier().appAdded(info.id);
@@ -747,7 +774,23 @@ export class AppsRestApi {
 						return API.v1.internalError('private_app_install_disabled');
 					}
 
-					const aff = await manager.update(buff, permissionsGranted);
+					const isCommunityWorkspace = !License.hasValidLicense();
+
+					// Note: exempt apps happen when a private app was uploaded to a community workspace before
+					//       the private app restriction was enforced. We still allow the users to use their
+					//       exempt apps, but they can't update them, since they could just upload a new version
+					//       containing a totally different app under the same id :(
+					const isExemptApp = isPrivateAppUpload && isCommunityWorkspace;
+					if (isExemptApp) {
+						return API.v1.failure({ error: 'Cannot_Update_Exempt_App' });
+					}
+
+					const user = orchestrator
+						?.getConverters()
+						?.get('users')
+						?.convertToApp(await Meteor.userAsync());
+
+					const aff = await manager.update(buff, permissionsGranted, { user, loadApp: true });
 					const info: IAppInfo & { status?: AppStatus } = aff.getAppInfo();
 
 					if (aff.hasStorageError()) {
@@ -1152,31 +1195,12 @@ export class AppsRestApi {
 						return API.v1.notFound(`No App found by the id of: ${appId}`);
 					}
 
-					const storedApp = prl.getStorageItem();
-					const { installationSource, marketplaceInfo } = storedApp;
-
-					if (!License.hasValidLicense() && installationSource === AppInstallationSource.MARKETPLACE) {
+					if (AppStatusUtils.isEnabled(status)) {
 						try {
-							const baseUrl = orchestrator.getMarketplaceUrl() as string;
-							const headers = getDefaultHeaders();
-							const { version } = prl.getInfo();
-
-							await appEnableCheck({
-								baseUrl,
-								headers,
-								appId,
-								version,
-								marketplaceInfo,
-								status,
-								logger: orchestrator.getRocketChatLogger(),
-							});
-						} catch (error: any) {
-							return API.v1.failure(error.message);
+							await canEnableApp(prl.getStorageItem());
+						} catch (error: unknown) {
+							return API.v1.failure((error as Error).message);
 						}
-					}
-
-					if (AppStatusUtils.isEnabled(status) && !(await canEnableApp(storedApp))) {
-						return API.v1.failure('Enabled apps have been maxed out');
 					}
 
 					const result = await manager.changeStatus(prl.getID(), status);
