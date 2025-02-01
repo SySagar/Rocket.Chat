@@ -11,8 +11,44 @@ export class HomeFlextabRoom {
 		return this.page.locator('role=button[name="Edit"]');
 	}
 
-	get btnDelete(): Locator {
-		return this.page.locator('role=button[name="Delete"]');
+	get btnLeave(): Locator {
+		return this.page.locator('role=button[name="Leave"]');
+	}
+
+	get btnMore(): Locator {
+		return this.page.locator('role=button[name="More"]');
+	}
+
+	getMoreOption(option: string) {
+		return this.page.locator(`role=menuitem[name="${option}"]`);
+	}
+
+	get confirmLeaveModal(): Locator {
+		return this.page.getByRole('dialog', { name: 'Confirmation', exact: true });
+	}
+
+	async confirmLeave() {
+		return this.confirmLeaveModal.getByRole('button', { name: 'Leave', exact: true }).click();
+	}
+
+	get confirmDeleteTeamModal(): Locator {
+		return this.page.getByRole('dialog', { name: 'Delete team', exact: true });
+	}
+
+	async confirmDeleteTeam() {
+		return this.confirmDeleteTeamModal.getByRole('button', { name: 'Yes, delete', exact: true }).click();
+	}
+
+	get confirmConvertModal(): Locator {
+		return this.page.getByRole('dialog', { name: 'Confirmation', exact: true });
+	}
+
+	async confirmConvert() {
+		return this.confirmConvertModal.getByRole('button', { name: 'Convert', exact: true }).click();
+	}
+
+	get optionDelete(): Locator {
+		return this.page.locator('label[data-key="delete"]');
 	}
 
 	get inputName(): Locator {
@@ -47,6 +83,10 @@ export class HomeFlextabRoom {
 		return this.page.getByRole('dialog').getByRole('alert', { name: 'Retention policy warning callout' });
 	}
 
+	get advancedSettingsAccordion(): Locator {
+		return this.page.getByRole('dialog').getByRole('button', { name: 'Advanced settings' });
+	}
+
 	get pruneAccordion(): Locator {
 		return this.page.getByRole('dialog').getByRole('button', { name: 'Prune', exact: true });
 	}
@@ -73,5 +113,18 @@ export class HomeFlextabRoom {
 
 	get checkboxIgnoreThreads(): Locator {
 		return this.page.getByRole('dialog').locator('label', { has: this.page.getByRole('checkbox', { name: 'Do not prune Threads' }) });
+	}
+
+	get checkboxChannels(): Locator {
+		return this.page.getByRole('dialog').locator('label', { has: this.page.getByRole('checkbox', { name: 'Channels' }) });
+	}
+
+	get checkboxDiscussions(): Locator {
+		return this.page.getByRole('dialog').locator('label', { has: this.page.getByRole('checkbox', { name: 'Discussions' }) });
+	}
+
+	async toggleSidepanelItems() {
+		await this.checkboxChannels.click();
+		await this.checkboxDiscussions.click();
 	}
 }
