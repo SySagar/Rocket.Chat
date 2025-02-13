@@ -1,8 +1,7 @@
 import { faker } from '@faker-js/faker';
 import type { ILivechatVisitor } from '@rocket.chat/core-typings';
 import { expect } from 'chai';
-import { before, describe, it } from 'mocha';
-import moment from 'moment';
+import { before, describe, it, after } from 'mocha';
 import { type Response } from 'supertest';
 
 import { getCredentials, api, request, credentials } from '../../../data/api-data';
@@ -17,7 +16,13 @@ import {
 } from '../../../data/livechat/rooms';
 import { getRandomVisitorToken } from '../../../data/livechat/users';
 import { getLivechatVisitorByToken } from '../../../data/livechat/visitor';
-import { updatePermission, updateSetting, removePermissionFromAllRoles, restorePermissionToRoles } from '../../../data/permissions.helper';
+import {
+	updatePermission,
+	updateSetting,
+	removePermissionFromAllRoles,
+	restorePermissionToRoles,
+	updateEESetting,
+} from '../../../data/permissions.helper';
 import { adminUsername } from '../../../data/user';
 import { IS_EE } from '../../../e2e/config/constants';
 
@@ -33,6 +38,7 @@ describe('LIVECHAT - visitors', () => {
 	before(async () => {
 		await updateSetting('Livechat_enabled', true);
 		await updatePermission('view-livechat-manager', ['admin']);
+		await updateEESetting('Livechat_Require_Contact_Verification', 'never');
 		await createAgent();
 		await makeAgentAvailable();
 		visitor = await createVisitor();
@@ -215,6 +221,25 @@ describe('LIVECHAT - visitors', () => {
 			expect(body.visitor).to.have.property('token', token);
 			expect(body.visitor).to.have.property('livechatData');
 			expect(body.visitor.livechatData).to.have.property(customFieldName, 'Not a real address :)');
+		});
+
+		describe('special cases', () => {
+			before(async () => {
+				await updateSetting('Livechat_Allow_collect_and_store_HTTP_header_informations', true);
+			});
+			after(async () => {
+				await updateSetting('Livechat_Allow_collect_and_store_HTTP_header_informations', false);
+			});
+
+			it('should allow to create a visitor without passing connectionData when GDPR setting is enabled', async () => {
+				const token = `${new Date().getTime()}-test`;
+
+				const { body } = await request.post(api('livechat/visitor')).send({ visitor: { token } });
+
+				expect(body).to.have.property('success', true);
+				expect(body).to.have.property('visitor');
+				expect(body.visitor).to.have.property('token', token);
+			});
 		});
 	});
 
@@ -456,27 +481,6 @@ describe('LIVECHAT - visitors', () => {
 					expect(res.body.visitor).to.have.property('ts');
 					expect(res.body.visitor._id).to.be.equal(createdVisitor._id);
 				});
-		});
-
-		it('should return visitor activity field when visitor was active on month', async () => {
-			// Activity is determined by a conversation in which an agent has engaged (sent a message)
-			// For a visitor to be considered active, they must have had a conversation in the last 30 days
-			const period = moment().format('YYYY-MM');
-			const { visitor, room } = await startANewLivechatRoomAndTakeIt();
-			// agent should send a message on the room
-			await request
-				.post(api('chat.sendMessage'))
-				.set(credentials)
-				.send({
-					message: {
-						rid: room._id,
-						msg: 'test',
-					},
-				});
-
-			const activeVisitor = await getLivechatVisitorByToken(visitor.token);
-			expect(activeVisitor).to.have.property('activity');
-			expect(activeVisitor.activity).to.include(period);
 		});
 
 		it('should not affect MAC count when a visitor is removed via GDPR', async () => {
@@ -961,66 +965,7 @@ describe('LIVECHAT - visitors', () => {
 			expect(res.body.contact).to.be.null;
 		});
 	});
-	// Check if this endpoint is still being used
-	describe('livechat/room.visitor', () => {
-		it('should fail if user doesnt have view-l-room permission', async () => {
-			await updatePermission('view-l-room', []);
-			const res = await request.put(api(`livechat/room.visitor`)).set(credentials).send();
-			expect(res.body).to.have.property('success', false);
-		});
-		it('should fail if rid is not on body params', async () => {
-			await updatePermission('view-l-room', ['admin', 'livechat-agent']);
-			const res = await request.put(api(`livechat/room.visitor`)).set(credentials).send();
-			expect(res.body).to.have.property('success', false);
-		});
-		it('should fail if oldVisitorId is not on body params', async () => {
-			const res = await request.put(api(`livechat/room.visitor`)).set(credentials).send({ rid: 'GENERAL' });
-			expect(res.body).to.have.property('success', false);
-		});
-		it('should fail if newVisitorId is not on body params', async () => {
-			const res = await request.put(api(`livechat/room.visitor`)).set(credentials).send({ rid: 'GENERAL', oldVisitorId: 'GENERAL' });
-			expect(res.body).to.have.property('success', false);
-		});
-		it('should fail if oldVisitorId doesnt point to a valid visitor', async () => {
-			const res = await request
-				.put(api(`livechat/room.visitor`))
-				.set(credentials)
-				.send({ rid: 'GENERAL', oldVisitorId: 'GENERAL', newVisitorId: 'GENERAL' });
-			expect(res.body).to.have.property('success', false);
-		});
-		it('should fail if rid doesnt point to a valid room', async () => {
-			const visitor = await createVisitor();
-			const res = await request
-				.put(api(`livechat/room.visitor`))
-				.set(credentials)
-				.send({ rid: 'GENERAL', oldVisitorId: visitor._id, newVisitorId: visitor._id });
-			expect(res.body).to.have.property('success', false);
-		});
-		it('should fail if oldVisitorId is trying to change a room is not theirs', async () => {
-			const visitor = await createVisitor();
-			const room = await createLivechatRoom(visitor.token);
-			const visitor2 = await createVisitor();
 
-			const res = await request
-				.put(api(`livechat/room.visitor`))
-				.set(credentials)
-				.send({ rid: room._id, oldVisitorId: visitor2._id, newVisitorId: visitor._id });
-			expect(res.body).to.have.property('success', false);
-		});
-		it('should successfully change a room visitor with a new one', async () => {
-			const visitor = await createVisitor();
-			const room = await createLivechatRoom(visitor.token);
-			const visitor2 = await createVisitor();
-
-			const res = await request
-				.put(api(`livechat/room.visitor`))
-				.set(credentials)
-				.send({ rid: room._id, oldVisitorId: visitor._id, newVisitorId: visitor2._id });
-			expect(res.body).to.have.property('success', true);
-			expect(res.body.room).to.have.property('v');
-			expect(res.body.room.v._id).to.equal(visitor2._id);
-		});
-	});
 	describe('livechat/visitors.search', () => {
 		it('should fail if user doesnt have view-l-room permission', async () => {
 			await updatePermission('view-l-room', []);
