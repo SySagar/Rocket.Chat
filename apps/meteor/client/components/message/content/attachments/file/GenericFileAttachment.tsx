@@ -6,10 +6,9 @@ import {
 	MessageGenericPreviewTitle,
 	MessageGenericPreviewDescription,
 } from '@rocket.chat/fuselage';
-import { useUniqueId } from '@rocket.chat/fuselage-hooks';
 import { useMediaUrl } from '@rocket.chat/ui-contexts';
+import { useId } from 'react';
 import type { UIEvent } from 'react';
-import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { getFileExtension } from '../../../../../../lib/utils/getFileExtension';
@@ -34,19 +33,25 @@ const GenericFileAttachment = ({
 	collapsed,
 }: GenericFileAttachmentProps) => {
 	const getURL = useMediaUrl();
-	const uid = useUniqueId();
+	const uid = useId();
 	const { t } = useTranslation();
 
 	const handleTitleClick = (event: UIEvent): void => {
-		if (openDocumentViewer && link) {
+		if (!link) {
+			return;
+		}
+
+		if (openDocumentViewer && format === 'PDF') {
 			event.preventDefault();
 
-			if (format === 'PDF') {
-				const url = new URL(getURL(link), window.location.origin);
-				url.searchParams.set('contentDisposition', 'inline');
-				openDocumentViewer(url.toString(), format, '');
-				return;
-			}
+			const url = new URL(getURL(link), window.location.origin);
+			url.searchParams.set('contentDisposition', 'inline');
+			openDocumentViewer(url.toString(), format, '');
+			return;
+		}
+
+		if (link.includes('/file-decrypt/')) {
+			event.preventDefault();
 
 			registerDownloadForUid(uid, t, title);
 			forAttachmentDownload(uid, link);
