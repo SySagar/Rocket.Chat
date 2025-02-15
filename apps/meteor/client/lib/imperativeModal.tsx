@@ -1,15 +1,15 @@
 import { Emitter } from '@rocket.chat/emitter';
-import React, { Suspense, createElement } from 'react';
-import type { ComponentProps, ElementType, ReactNode } from 'react';
+import { createElement } from 'react';
+import type { ComponentProps, ComponentType, ReactNode } from 'react';
 
 import { modalStore } from '../providers/ModalProvider/ModalStore';
 
-type ReactModalDescriptor<TComponent extends ElementType> = {
+type ReactModalDescriptor<TComponent extends ComponentType<any> = ComponentType<any>> = {
 	component: TComponent;
 	props?: ComponentProps<TComponent>;
 };
 
-type ModalDescriptor = ReactModalDescriptor<ElementType> | null;
+type ModalDescriptor = ReactModalDescriptor | null;
 
 type ModalInstance = {
 	close: () => void;
@@ -22,14 +22,10 @@ const mapCurrentModal = (descriptor: ModalDescriptor): ReactNode => {
 	}
 
 	if ('component' in descriptor) {
-		return (
-			<Suspense fallback={<div />}>
-				{createElement(descriptor.component, {
-					key: Math.random(),
-					...descriptor.props,
-				})}
-			</Suspense>
-		);
+		return createElement(descriptor.component, {
+			key: Math.random(),
+			...descriptor.props,
+		});
 	}
 };
 
@@ -41,11 +37,11 @@ class ImperativeModalEmmiter extends Emitter<{ update: ModalDescriptor }> {
 		this.store = store;
 	}
 
-	open = <TComponent extends ElementType>(descriptor: ReactModalDescriptor<TComponent>): ModalInstance => {
+	open = <TComponent extends ComponentType<any>>(descriptor: ReactModalDescriptor<TComponent>): ModalInstance => {
 		return this.store.open(mapCurrentModal(descriptor as ModalDescriptor));
 	};
 
-	push = <TComponent extends ElementType>(descriptor: ReactModalDescriptor<TComponent>): ModalInstance => {
+	push = <TComponent extends ComponentType<any>>(descriptor: ReactModalDescriptor<TComponent>): ModalInstance => {
 		return this.store.push(mapCurrentModal(descriptor as ModalDescriptor));
 	};
 
